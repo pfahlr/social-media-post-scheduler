@@ -9,17 +9,29 @@ TODO
 **Support:**
 
 -[ ] Twitter/X
+
 -[ ] Instagram
+
 -[ ] Substack
+
 -[ ] tumblr
+
 -[ ] Misskey
+
 -[ ] Bluesky
+
 -[ ] Mastodon
+
 -[ ] Threads
+
 -[ ] TikTok
+
 -[ ] Facebook Pages
+
 -[ ] LinkedIn
+
 -[ ] Medium
+
 -[ ] Facebook
    
 - [ ] Implement Post to multiple profiles
@@ -29,6 +41,7 @@ TODO
 ## Planned Tech Stack
 Express.js 
 MongoDB 
+
 
 
 
