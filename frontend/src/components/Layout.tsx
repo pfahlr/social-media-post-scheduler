@@ -1,15 +1,13 @@
 import React from 'react';
 import { NavBar } from './NavBar';
 
-interface Props {
-  children: React.ReactNode;
-}
-
-export const Layout: React.FC<Props> = ({ children }) => {
+export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return (
-    <div>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <NavBar />
-      <main style={{ padding: '1rem' }}>{children}</main>
+      <main style={{ flex: 1, padding: '20px', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
+        {children}
+      </main>
     </div>
   );
 };

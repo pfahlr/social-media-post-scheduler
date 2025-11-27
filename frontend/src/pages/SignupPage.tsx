@@ -1,54 +1,76 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { apiClient } from '../api/client';
+import { useNavigate, Link } from 'react-router-dom';
+import { authApi } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
 
 export const SignupPage: React.FC = () => {
-  const navigate = useNavigate();
-  const { setUser } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState('');
+  const navigate = useNavigate();
+  const { setUser } = useAuth();
 
-  async function handleSubmit(e: React.FormEvent) {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
+    setError('');
+    
+    if (password !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
     try {
-      const res = await apiClient.post('/auth/signup', { email, password });
+      const res = await authApi.signup(email, password);
       setUser(res.data);
       navigate('/dashboard');
     } catch (err) {
-      setError('Signup failed');
+      setError('Signup failed. Email may already be in use.');
     }
-  }
+  };
 
   return (
-    <div>
-      <h1>Sign up</h1>
+    <div style={{ maxWidth: '400px', margin: '3rem auto', padding: '2rem', border: '1px solid #ccc', borderRadius: '8px' }}>
+      <h2>Sign Up</h2>
+      {error && <div style={{ color: 'red', marginBottom: '1rem' }}>{error}</div>}
       <form onSubmit={handleSubmit}>
-        <div>
-          <label>
-            Email
-            <input
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-            />
-          </label>
+        <div style={{ marginBottom: '1rem' }}>
+          <label>Email:</label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            style={{ width: '100%', padding: '0.5rem', marginTop: '0.25rem' }}
+          />
         </div>
-        <div>
-          <label>
-            Password
-            <input
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-            />
-          </label>
+        <div style={{ marginBottom: '1rem' }}>
+          <label>Password:</label>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            style={{ width: '100%', padding: '0.5rem', marginTop: '0.25rem' }}
+          />
         </div>
-        <button type="submit">Create account</button>
-        {error && <p style={{ color: 'red' }}>{error}</p>}
+        <div style={{ marginBottom: '1rem' }}>
+          <label>Confirm Password:</label>
+          <input
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            required
+            style={{ width: '100%', padding: '0.5rem', marginTop: '0.25rem' }}
+          />
+        </div>
+        <button type="submit" style={{ width: '100%', padding: '0.75rem', background: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+          Sign Up
+        </button>
       </form>
+      <p style={{ marginTop: '1rem', textAlign: 'center' }}>
+        Already have an account? <Link to="/login">Login</Link>
+      </p>
     </div>
   );
 };

@@ -3,18 +3,65 @@ import { prisma } from '../../db/client';
 export async function runCleanupOldPostsJob(): Promise<void> {
   const now = new Date();
 
-  const toDelete = await prisma.scheduledPost.findMany({
-    where: {
-      retentionUntil: { lte: now }
-    },
-    select: { id: true }
-  });
+  try {
+    const oldPosts = await prisma.scheduledPost.findMany({
+      where: {
+        retentionUntil: { lte: now }
+      },
+      include: {
+        postTargets: {
+          include: {
+            deliveryAttempts: true
+          }
+        }
+      }
+    });
 
-  if (!toDelete.length) return;
+    for (const post of oldPosts) {
+      for (const target of post.postTargets) {
+        await prisma.deliveryAttempt.deleteMany({
+          where: { postTargetId: target.id }
+        });
+      }
 
-  const ids = toDelete.map(p => p.id);
+      await prisma.postTarget.deleteMany({
+        where: { scheduledPostId: post.id }
+      });
 
-  // TODO: implement cascaded deletion using Prisma or explicit deletes
-  // eslint-disable-next-line no-console
-  console.log('Cleanup job would delete ScheduledPosts:', ids);
+      await prisma.scheduledPost.delete({
+        where: { id: post.id }
+      });
+    }
+
+    const orphanedDrafts = await prisma.postDraft.findMany({
+      where: {
+        scheduledPosts: {
+          none: {}
+        }
+      }
+    });
+
+    for (const draft of orphanedDrafts) {
+      for (const mediaId of draft.mediaAssetIds as string[]) {
+        const isUsedByOtherDrafts = await prisma.postDraft.count({
+          where: {
+            id: { not: draft.id },
+            mediaAssetIds: {
+              has: mediaId
+            }
+          }
+        });
+
+        if (isUsedByOtherDrafts === 0) {
+          await prisma.mediaAsset.deleteMany({
+            where: { id: mediaId }
+          });
+        }
+      }
+    }
+
+    console.log(`Cleaned up ${oldPosts.length} old posts`);
+  } catch (err) {
+    console.error('Error in cleanupOldPostsJob:', err);
+  }
 }
