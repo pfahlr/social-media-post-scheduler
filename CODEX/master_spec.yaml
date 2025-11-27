@@ -1,0 +1,533 @@
+spec_version: 0.1.2
+project_name: social-media-post-scheduler
+description: >
+  Modular, self-hostable social media post management platform.
+  Users can connect social accounts, create posts, schedule and publish
+  them across multiple platforms, with a React SPA frontend and a
+  Node.js/Express backend using TypeScript and Prisma.
+
+repo_layout:
+  root:
+    - spec/master_spec.yaml
+    - backend/
+    - frontend/
+    - docker-compose.yml
+    - README.md
+  backend:
+    - src/
+    - prisma/
+    - package.json
+    - tsconfig.json
+  frontend:
+    - src/
+    - index.html
+    - vite.config.ts
+    - package.json
+    - tsconfig.json
+
+goals:
+  - Self-hostable web app; can later be offered as a hosted service.
+  - Minimal setup path: npm install && npm run dev/prod using SQLite.
+  - Users can register with email/password (no email verification in v0).
+  - Users can add/edit/delete social accounts via plugin-based providers.
+  - Multiple accounts and instances per provider (e.g. multiple Mastodon servers).
+  - Unified "post" model that can target multiple platforms at once.
+  - Respect per-platform constraints (text length, media limits, etc.).
+  - UI enforces constraints based on the most restrictive selected provider.
+  - Posts can be published immediately or scheduled for the future.
+  - Posts are retained for a configurable number of days, then auto-deleted.
+  - Media assets (images/video/etc) stored as blobs in DB (v0).
+  - Use TypeScript end-to-end for better safety and tooling.
+
+non_goals_v0:
+  - Team/org accounts or complex role-based permissions.
+  - Engagement analytics / reports.
+  - Webhooks, streaming connections, or live dashboards.
+  - Email verification, password reset emails, or social login.
+  - External object storage (S3); DB-blobs only for media in v0.
+  - Sophisticated queue infrastructure (Redis/BullMQ); node-cron only in v0.
+  - In-app admin UI for global/system config (configs come from env/files).
+
+stack:
+  language: typescript
+  runtime: nodejs_lts
+  backend:
+    dir: backend
+    framework: express
+    api_style: json_rest
+    auth:
+      library: passport
+      strategy: passport_local
+      session_management: express-session
+      password_hashing: bcrypt
+    orm:
+      library: prisma
+      databases:
+        - sqlite
+        - postgres
+      schema_dir: backend/prisma/schema.prisma
+    scheduler:
+      library: node-cron
+      approach: >
+        Single-process cron jobs for v0, running inside the backend process
+        to periodically check and dispatch scheduled posts.
+      retry_policy:
+        default_max_retries: 3
+        per_provider_override: true
+        description: >
+          Each provider can define its own max_retries. If none is set,
+          the global default (3) is used. Retries are counted per target
+          based on the number of failed DeliveryAttempts.
+    http_client:
+      library: axios
+  frontend:
+    dir: frontend
+    framework: react
+    bundler: vite
+    language: typescript
+    styling:
+      option_a: tailwindcss
+      option_b: minimal css modules
+    routing: react-router
+  database:
+    primary:
+      sqlite:
+        usage: default_for_local_and_small_installs
+        prisma_url_example: file:./dev.db
+      postgres:
+        usage: production_or_multi_user_installs
+        prisma_url_example: postgres://user:pass@host:5432/dbname
+    migrations: prisma_migrate
+
+deployment_modes:
+  - id: single_process_sqlite
+    description: >
+      One Node.js process running the API, scheduler, and serving the
+      built React SPA, backed by SQLite. Easiest path to run locally or
+      as a simple container.
+  - id: api_plus_static_postgres
+    description: >
+      Backend Node.js API with node-cron scheduler, Postgres DB,
+      React SPA built to static assets and served either by the backend
+      or a separate static host (CDN, Nginx, etc.).
+
+domain_model:
+  User:
+    fields:
+      id: string (uuid)
+      email: string (unique)
+      password_hash: string
+      created_at: datetime
+      updated_at: datetime
+    constraints:
+      - email must be unique
+    notes:
+      - Auth via passport-local; passwords hashed with bcrypt.
+
+  SocialAccount:
+    fields:
+      id: string (uuid)
+      user_id: string (uuid, fk -> User)
+      provider_id: string              # e.g. "substack", "instagram"
+      display_name: string
+      handle: string
+      instance_url: string | null      # for federated services (Mastodon, Misskey), optional otherwise
+      auth_data: json                  # provider-specific tokens/config
+      created_at: datetime
+      updated_at: datetime
+      last_validated_at: datetime | null
+    constraints:
+      - Multiple SocialAccount records per (user, provider_id) are allowed.
+    notes:
+      - auth_data holds tokens/keys/instance URLs safely.
+      - Each plugin is responsible for interpreting auth_data.
+      - Supporting multiple instances per provider is natural: each instance
+        is simply another SocialAccount with its own instance_url/auth_data.
+
+  ProviderPlugin:
+    description: >
+      TypeScript interface implemented by each social platform module.
+      Encapsulates provider-specific auth, constraints, and publishing.
+    interface_ts:
+      file: backend/src/providers/types.ts
+      shape:
+        id: string
+        label: string
+        capabilities:
+          max_text_length: number | null
+          max_images: number | null
+          max_video_mb: number | null
+          supported_post_types: string[]   # ["short", "long_form", "image_gallery", "video"]
+          auth_type: string                # "oauth2", "api_key", "basic", "custom"
+          notes?: string
+          retry_config?:
+            max_retries: number           # per-provider override, default 3
+        methods:
+          - validateAuth(authData): Promise<boolean>
+          - getAuthUrl?(state): string                       # for OAuth2
+          - handleOAuthCallback?(req): Promise<AuthData>     # for OAuth2
+          - normalizePostInput(postDraft, targetOptions): NormalizedPost
+          - publishPost(socialAccount, normalizedPost): Promise<PublishResult>
+          - fetchConstraints?(): Promise<ProviderCapabilities>
+    registration:
+      registry_file: backend/src/providers/registry.ts
+      registry_shape: Record<string, ProviderPlugin>
+
+  PostDraft:
+    fields:
+      id: string (uuid)
+      user_id: string (uuid)
+      title: string | null
+      body_text: string
+      post_type: enum [short, long_form, image_gallery, video, link]
+      media_asset_ids: string[]         # fks -> MediaAsset.id
+      created_at: datetime
+      updated_at: datetime
+    notes:
+      - Represents the editable version of a post.
+      - Can be cloned to create platform-specific variations.
+
+  ScheduledPost:
+    fields:
+      id: string (uuid)
+      user_id: string (uuid)
+      post_draft_id: string (uuid, fk -> PostDraft)
+      scheduled_for: datetime
+      publish_immediately: boolean
+      status: enum [pending, processing, completed, failed, cancelled]
+      created_at: datetime
+      updated_at: datetime
+      retention_until: datetime
+    notes:
+      - Immediate posts: scheduled_for = now, publish_immediately = true.
+      - retention_until = scheduled_for + POST_RETENTION_DAYS.
+
+  PostTarget:
+    fields:
+      id: string (uuid)
+      scheduled_post_id: string (uuid, fk -> ScheduledPost)
+      provider_id: string
+      social_account_id: string (uuid, fk -> SocialAccount)
+      effective_constraints: json
+      status: enum [pending, success, failed]
+      error_message: string | null
+    notes:
+      - One PostTarget per (ScheduledPost, SocialAccount) pair.
+      - Retry counts are derived from the number of failed DeliveryAttempts.
+
+  DeliveryAttempt:
+    fields:
+      id: string (uuid)
+      post_target_id: string (uuid, fk -> PostTarget)
+      attempted_at: datetime
+      result: enum [success, failure]
+      error_message: string | null
+      provider_response: json | null
+
+  MediaAsset:
+    fields:
+      id: string (uuid)
+      user_id: string (uuid)
+      mime_type: string
+      size_bytes: number
+      data_blob: bytes
+      created_at: datetime
+
+  SystemConfig:
+    fields:
+      id: string (uuid)
+      key: string
+      value: json
+    example_keys:
+      - post_retention_days
+      - scheduler_interval_seconds
+      - max_media_size_bytes
+    notes:
+      - System-level config is sourced from environment variables and/or
+        configuration files, not edited via an in-app admin UI in v0.
+      - SystemConfig records may be used as a cached representation of
+        file/env config, but changes are applied through deploy/config,
+        not through a web interface.
+
+providers:
+  target_providers_mvp:
+    - id: substack
+      label: Substack
+      focus_post_types: [long_form]
+      auth_notes: >
+        Likely non-trivial; may require unofficial/automation approach or
+        future official API. For v0, plugin may be a stub or manual integration.
+      retry_config:
+        max_retries: 3
+    - id: instagram
+      label: Instagram
+      focus_post_types: [image_gallery, video, short]
+      auth_notes: >
+        Official Graph API has constraints; may require Facebook app setup.
+        v0 may implement limited functionality or be marked "experimental".
+      retry_config:
+        max_retries: 3
+    - id: mastodon
+      label: Mastodon
+      focus_post_types: [short, image_gallery]
+      auth_notes: >
+        Federated; requires instance URL + token. Good candidate for early full support.
+      retry_config:
+        max_retries: 3
+    - id: misskey
+      label: Misskey
+      focus_post_types: [short, image_gallery]
+      auth_notes: >
+        ActivityPub-ish, similar logic to Mastodon with different endpoints.
+      retry_config:
+        max_retries: 3
+    - id: bluesky
+      label: Bluesky
+      focus_post_types: [short, image_gallery]
+      auth_notes: >
+        AT Protocol; supports posting via access tokens.
+      retry_config:
+        max_retries: 3
+    - id: tumblr
+      label: Tumblr
+      focus_post_types: [long_form, image_gallery, short]
+      auth_notes: >
+        API supports posts; may use OAuth. Good early target for long_form.
+      retry_config:
+        max_retries: 3
+
+  constraints_strategy:
+    text_length:
+      rule: most_restrictive
+      description: >
+        When a user selects multiple target providers, the UI enforces the
+        smallest max_text_length among them. If a new provider with a stricter
+        limit is added after text entry, the system shows a validation error
+        and suggests editing or cloning the post.
+    media_limits:
+      rule: most_restrictive
+      description: >
+        Similar logic for max_images and max_video_mb. The most restrictive
+        provider determines allowed media count/size.
+    post_types:
+      description: >
+        For each provider, the plugin defines supported post_types. The UI
+        disables incompatible post types if the selected provider set cannot
+        support them all at once.
+
+user_flows:
+  auth_signup_login:
+    steps:
+      - GET /auth/signup (SPA route /signup renders form)
+      - POST /api/auth/signup with email + password
+      - Backend creates User, hashes password, starts session.
+      - SPA stores session state, redirects to /dashboard.
+      - Login flow mirrors signup with POST /api/auth/login.
+
+  manage_social_accounts:
+    steps:
+      - User visits /accounts in SPA.
+      - SPA calls GET /api/social-accounts to list existing accounts.
+      - "Add account" button:
+        - user chooses provider (and instance URL if federated provider).
+        - SPA shows provider-specific form (OAuth redirect or API key fields).
+      - On submit:
+        - For OAuth providers: redirect to provider auth, callback hits backend,
+          backend stores auth_data (and instance_url if applicable) and redirects back to SPA.
+        - For key-based: backend validates token/key and stores SocialAccount.
+      - User can add multiple accounts per provider, including multiple instances
+        (e.g. two different Mastodon servers).
+      - User can edit display_name/handle/instance_url or delete account via PUT/DELETE.
+
+  create_post_draft_and_select_targets:
+    steps:
+      - User visits /posts/new.
+      - SPA loads list of connected SocialAccounts grouped by provider and instance.
+      - User:
+        - chooses post_type (short/long_form/image_gallery)
+        - enters title (optional) and body_text
+        - uploads media (optional)
+        - selects one or more target accounts.
+      - SPA:
+        - fetches provider capabilities for selected providers.
+        - computes most_restrictive constraints (max_text_length, max_images, etc.).
+        - updates UI counters and validation (remaining characters, media limits).
+      - If user later adds a more restrictive provider and content is invalid:
+        - show inline error (e.g., "Content exceeds 280 characters required by X").
+        - provide "Clone post for this provider" button to create a separate draft.
+
+  preview_and_schedule:
+    steps:
+      - User clicks "Submit" from editor.
+      - SPA validates basic constraints client-side.
+      - SPA sends draft + target selection to backend (POST /api/drafts with flag).
+      - Backend creates/updates PostDraft.
+      - Backend responds with a preview payload (or SPA renders preview from current data).
+      - PREVIEW screen shows:
+        - rendered content
+        - list of target providers/accounts
+        - indicators of constraints applied.
+      - User chooses:
+        - "Post now":
+          - SPA sends POST /api/scheduled-posts with publish_immediately=true.
+        - "Schedule":
+          - user picks datetime; SPA sends POST /api/scheduled-posts with scheduled_for.
+        - "Edit":
+          - return to editor with current draft.
+
+  scheduling_and_publishing:
+    scheduler:
+      library: node-cron
+      job_schedule: "*/1 * * * *"   # every minute, configurable
+      algorithm:
+        - On each tick:
+          - Query ScheduledPost where:
+            - status = "pending"
+            - (publish_immediately = true AND scheduled_for <= now)
+              OR (publish_immediately = false AND scheduled_for <= now)
+          - For each ScheduledPost:
+            - set status = "processing".
+            - For each linked PostTarget:
+              - Count current attempts: number of DeliveryAttempt rows for this PostTarget.
+              - Determine max_retries:
+                - if provider.retry_config.max_retries is set, use that.
+                - else, use global default_max_retries (3).
+              - If attempts >= max_retries:
+                - mark PostTarget.status = "failed" (no further attempts).
+                - continue to next PostTarget.
+              - Otherwise:
+                - call ProviderPlugin.publishPost() with normalized content.
+                - record DeliveryAttempt with result.
+                - on success: PostTarget.status = "success".
+                - on failure:
+                  - if attempts + 1 >= max_retries -> status = "failed".
+                  - else -> leave status = "pending" for retry on next tick.
+            - After all targets processed:
+              - If all PostTargets are success -> status = "completed".
+              - If any PostTarget is failed and none are pending -> status = "failed".
+              - If any are still pending (due to retry strategy) -> status may remain "processing" or "pending",
+                depending on implementation detail.
+
+  retention_cleanup:
+    steps:
+      - node-cron job runs daily (configurable).
+      - Query ScheduledPost where retention_until <= now.
+      - Delete:
+        - DeliveryAttempt entries for those posts.
+        - PostTarget entries.
+        - ScheduledPost rows.
+        - Optionally delete PostDraft if not referenced.
+        - Optionally delete MediaAsset rows that are no longer referenced.
+
+frontend_routes:
+  - path: "/"
+    component: LandingPage
+  - path: "/login"
+    component: LoginPage
+  - path: "/signup"
+    component: SignupPage
+  - path: "/dashboard"
+    component: DashboardPage
+  - path: "/accounts"
+    component: SocialAccountsPage
+  - path: "/posts"
+    component: PostsListPage
+  - path: "/posts/new"
+    component: PostEditorPage
+  - path: "/posts/:id/edit"
+    component: PostEditorPage
+  - path: "/posts/:id/preview"
+    component: PostPreviewPage
+
+api_surface:
+  base_url: /api
+  endpoints:
+    auth:
+      - method: POST
+        path: /auth/signup
+      - method: POST
+        path: /auth/login
+      - method: POST
+        path: /auth/logout
+      - method: GET
+        path: /auth/me
+    social_accounts:
+      - method: GET
+        path: /social-accounts
+      - method: POST
+        path: /social-accounts
+      - method: PUT
+        path: /social-accounts/:id
+      - method: DELETE
+        path: /social-accounts/:id
+    drafts:
+      - method: GET
+        path: /drafts
+      - method: GET
+        path: /drafts/:id
+      - method: POST
+        path: /drafts
+      - method: PUT
+        path: /drafts/:id
+      - method: POST
+        path: /drafts/:id/clone
+    media:
+      - method: POST
+        path: /media
+      - method: GET
+        path: /media/:id
+      - method: DELETE
+        path: /media/:id
+    scheduled_posts:
+      - method: GET
+        path: /scheduled-posts
+      - method: GET
+        path: /scheduled-posts/:id
+      - method: POST
+        path: /scheduled-posts
+      - method: POST
+        path: /scheduled-posts/:id/cancel
+    config:
+      - method: GET
+        path: /config
+
+config:
+  env_variables:
+    - NODE_ENV
+    - PORT
+    - DATABASE_URL
+    - SESSION_SECRET
+    - POST_RETENTION_DAYS
+    - SCHEDULER_INTERVAL_SECONDS
+    - DEFAULT_MAX_RETRIES
+    - PROVIDER_SUBSTACK_API_KEY
+    - PROVIDER_INSTAGRAM_APP_ID
+    - PROVIDER_INSTAGRAM_APP_SECRET
+    - PROVIDER_MASTODON_DEFAULT_INSTANCE
+    - PROVIDER_MISKEY_DEFAULT_INSTANCE
+    - PROVIDER_BLUESKY_APP_PASSWORD
+    - PROVIDER_TUMBLR_API_KEY
+  runtime_flags:
+    - ENABLE_REGISTRATION
+    - ENABLE_SCHEDULER
+  notes:
+    - Global configuration is applied via environment variables and/or
+      configuration files. There is no admin UI for editing global settings
+      from within the web app in v0.
+
+security:
+  notes:
+    - Use HTTPS in production; secure cookies for sessions.
+    - Hash passwords with bcrypt (cost factor configured per environment).
+    - Never log provider secrets or user tokens.
+    - Apply basic rate limiting to auth endpoints.
+    - CSRF protection for non-API form submissions (if any).
+
+future_ideas:
+  - Password reset via email.
+  - Per-provider content preview (what the post will look like on each platform).
+  - Analytics: track which providers succeed/fail most often.
+  - External storage option for media (S3/MinIO) with pluggable adapter.
+  - Admin-like tooling via config files + CLI for ops tasks (e.g. migrate config).
+
+open_questions: []
