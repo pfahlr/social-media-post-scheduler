@@ -6,15 +6,21 @@ It should also display whatever information about the configured accounts is ava
 
 TODO
 
-- [ ] Support: 
-1) Twitter/X
-2) Bluesky
-3) Mastodon
-4) Instagram
-5) Threads
-6) TikTok
-7) Facebook Pages
-8) LinkedIn
+**Support:**
+
+-[ ] Twitter/X
+-[ ] Instagram
+-[ ] Substack
+-[ ] tumblr
+-[ ] Misskey
+-[ ] Bluesky
+-[ ] Mastodon
+-[ ] Threads
+-[ ] TikTok
+-[ ] Facebook Pages
+-[ ] LinkedIn
+-[ ] Medium
+-[ ] Facebook
    
 - [ ] Implement Post to multiple profiles
 - [ ] Implement Store Account information
@@ -23,5 +29,6 @@ TODO
 ## Planned Tech Stack
 Express.js 
 MongoDB 
+
 
 
