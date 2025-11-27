@@ -1,0 +1,106 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String          @id @default(uuid())
+  email        String          @unique
+  passwordHash String
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  socialAccounts SocialAccount[]
+  postDrafts     PostDraft[]
+  scheduledPosts ScheduledPost[]
+}
+
+model SocialAccount {
+  id              String   @id @default(uuid())
+  userId          String
+  providerId      String
+  displayName     String
+  handle          String
+  instanceUrl     String?
+  authData        Json
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  lastValidatedAt DateTime?
+
+  user        User        @relation(fields: [userId], references: [id])
+  postTargets PostTarget[]
+}
+
+model PostDraft {
+  id            String        @id @default(uuid())
+  userId        String
+  title         String?
+  bodyText      String
+  postType      String
+  mediaAssetIds String[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  user           User           @relation(fields: [userId], references: [id])
+  scheduledPosts ScheduledPost[]
+}
+
+model ScheduledPost {
+  id                String        @id @default(uuid())
+  userId            String
+  postDraftId       String
+  scheduledFor      DateTime
+  publishImmediately Boolean
+  status            String
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  retentionUntil    DateTime
+
+  user        User      @relation(fields: [userId], references: [id])
+  postDraft   PostDraft @relation(fields: [postDraftId], references: [id])
+  postTargets PostTarget[]
+}
+
+model PostTarget {
+  id                 String   @id @default(uuid())
+  scheduledPostId    String
+  providerId         String
+  socialAccountId    String
+  effectiveConstraints Json
+  status             String
+  errorMessage       String?
+
+  scheduledPost    ScheduledPost   @relation(fields: [scheduledPostId], references: [id])
+  socialAccount    SocialAccount   @relation(fields: [socialAccountId], references: [id])
+  deliveryAttempts DeliveryAttempt[]
+}
+
+model DeliveryAttempt {
+  id              String   @id @default(uuid())
+  postTargetId    String
+  attemptedAt     DateTime @default(now())
+  result          String
+  errorMessage    String?
+  providerResponse Json?
+
+  postTarget PostTarget @relation(fields: [postTargetId], references: [id])
+}
+
+model MediaAsset {
+  id        String   @id @default(uuid())
+  userId    String
+  mimeType  String
+  sizeBytes Int
+  dataBlob  Bytes
+  createdAt DateTime @default(now())
+}
+
+model SystemConfig {
+  id    String @id @default(uuid())
+  key   String @unique
+  value Json
+}

@@ -1,12 +1,9 @@
 {
-  "name": "social-media-scheduler",
-  "version": "1.0.0",
-  "description": "a system for sheduling posts to social media accounts",
-  "main": "server.js",
+  "name": "social-media-post-scheduler",
+  "version": "0.0.1",
+  "private": true,
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js"
-  },
-  "author": "",
-  "license": "ISC"
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev"
+  }
 }

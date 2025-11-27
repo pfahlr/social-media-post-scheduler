@@ -1,0 +1,123 @@
+id: v0_mvp_social_media_post_scheduler
+title: Build v0 MVP for social-media-post-scheduler
+description: >
+  Implement the v0 MVP of the social-media-post-scheduler project as
+  specified in spec/master_spec.yaml, filling in the stubbed backend
+  and frontend code with working functionality.
+
+context:
+  repo_url: https://github.com/pfahlr/social-media-post-scheduler
+  spec_file: spec/master_spec.yaml
+  backend_root: backend
+  frontend_root: frontend
+  notes:
+    - Use TypeScript everywhere (backend and frontend).
+    - Use Prisma for DB access (SQLite by default; Postgres-compatible).
+    - Use Express, passport-local, express-session for auth.
+    - Use React + Vite for SPA frontend.
+    - Respect plugin-based provider architecture, but it is sufficient in v0
+      to fully implement only one provider (e.g. Mastodon) and stub others
+      with clear TODOs.
+
+requirements:
+  - Backend:
+      - Complete Prisma schema to match the spec domain model.
+      - Implement migrations and ensure dev can run with SQLite.
+      - Implement auth routes (signup, login, logout, /auth/me).
+      - Implement CRUD for SocialAccount with support for multiple accounts
+        and instances per provider.
+      - Implement CRUD for PostDraft and cloning.
+      - Implement scheduling API for ScheduledPost and PostTarget.
+      - Implement basic MediaAsset upload and retrieval (DB blobs).
+      - Implement scheduler jobs using node-cron:
+          - dispatch scheduled posts using ProviderPlugin.publishPost.
+          - cleanup old posts according to retention_until.
+      - Implement ProviderPlugin interface and registry:
+          - Provide a working mastodonProvider implementation stub that
+            validates auth and publishes posts in a minimal, testable way,
+            or at least clearly returns "Not implemented" with TODOs.
+      - Ensure proper error handling and logging through errorHandler middleware.
+  - Frontend:
+      - Implement React SPA routing and basic layout.
+      - Implement signup/login/logout flows against backend API.
+      - Implement a dashboard page summarizing upcoming posts and connected accounts.
+      - Implement social accounts management page with add/edit/delete.
+      - Implement post editor page with:
+          - body_text, title, post_type, media upload.
+          - target provider/account selection.
+          - most restrictive constraint calculation for character count and media.
+          - ability to clone an existing draft for different targets.
+      - Implement preview screen and workflow:
+          - ADD/EDIT -> Submit -> PREVIEW -> Post now / Schedule / Edit.
+      - Implement posts list page showing scheduled posts and status.
+  - Config:
+      - Read all required environment variables and provide sane defaults
+        for local development.
+      - Document how to run in README.md (backend and frontend dev scripts).
+  - Quality:
+      - Keep code modular and close to existing stubs.
+      - Use consistent 2-space indentation.
+      - Add minimal inline comments where logic is non-obvious.
+
+steps:
+  - name: Review spec and stubs
+    actions:
+      - Open spec/master_spec.yaml and understand domain model and flows.
+      - Open all stub files in backend/src and frontend/src to see current structure.
+  - name: Implement Prisma schema and DB integration
+    actions:
+      - Complete backend/prisma/schema.prisma according to the spec.
+      - Run prisma generate and prisma migrate dev for SQLite.
+      - Update backend/db/client.ts if needed.
+  - name: Implement authentication
+    actions:
+      - Ensure passport-local strategy and session management are correctly wired.
+      - Implement backend auth routes (signup, login, logout, /auth/me).
+      - Implement frontend auth forms and useAuth hook integration.
+  - name: Implement domain APIs
+    actions:
+      - Implement social account routes and handlers (CRUD).
+      - Implement draft routes and handlers (CRUD + clone).
+      - Implement media upload and retrieval endpoint using DB blobs.
+      - Implement scheduled post routes (create, list, detail, cancel).
+  - name: Implement provider plugin system
+    actions:
+      - Finalize ProviderPlugin interface and registry.
+      - Implement a minimal, testable mastodonProvider with real or mock behavior.
+      - Stub other providers (substack, instagram, misskey, bluesky, tumblr)
+        with TODOs and placeholder capabilities.
+  - name: Implement scheduler jobs
+    actions:
+      - Implement dispatchScheduledPosts job according to spec retry rules.
+      - Implement cleanupOldPosts job according to retention rules.
+      - Wire scheduler initialization in backend/src/index.ts.
+  - name: Implement frontend pages and workflows
+    actions:
+      - Implement Landing, Login, Signup, Dashboard, SocialAccounts pages.
+      - Implement PostsList, PostEditor, PostPreview pages and navigation.
+      - Implement PostEditor constraints logic for max text length and media
+        based on selected providers.
+  - name: Wire up end-to-end behavior
+    actions:
+      - Verify that a user can:
+          - sign up and log in,
+          - connect at least one social account (even if provider is stubbed),
+          - create a post draft,
+          - select targets,
+          - preview and schedule OR post immediately,
+          - see scheduled posts in list.
+      - Verify scheduler runs and updates statuses (can be log-based for v0).
+  - name: Update README and basic docs
+    actions:
+      - Add instructions for:
+          - installing dependencies,
+          - running prisma migrate,
+          - starting backend and frontend dev servers,
+          - basic usage flow.
+
+notes_for_model:
+  - It is acceptable to leave some provider implementations partially stubbed
+    as long as the interfaces and flows are clearly defined and testable.
+  - Prefer small, focused modules and clear types over dense, monolithic files.
+  - Follow the existing spec/master_spec.yaml wherever possible; if deviations
+    are necessary, document them briefly in comments or README.
